@@ -195,10 +195,10 @@ def bit_to_freq(bits, N):
 
 # div and conquer freq detect
 
-N = 8192 
+N = 512 #1024 
 #SNRdB = -2
 layer = 6
-m = 40
+m = 27
 
 log = int(np.log2(N))
 
@@ -213,7 +213,7 @@ batch_size = log * 20
 num_classes = 1
 
 #ms = [20, 30, 50, 80, 120, 200]
-snrs = [10, 8, 6, 4, 2, 0]
+snrs = [10, 8, 6, 4, 2, 0, -2]
 
 bin_accs = []
 freq_accs = []
@@ -233,7 +233,7 @@ for SNRdB in snrs:
         # Store layers weight & bias
         weights = {i: tf.Variable(tf.random_normal([3, 2, 2])) for i in range(1, layer+1)}
         weights[0] = tf.Variable(tf.random_normal([5, 2, 2]))
-        weights['out'] = tf.Variable(tf.random_normal([(m-4-(2*layer))*2, num_classes]))
+        weights['out'] = tf.Variable(tf.random_normal([(m-4-(0*2*layer))*2, num_classes])) # changed
         biases = {i: tf.Variable(tf.random_normal([2])) for i in range(layer+1)}
         biases['out'] = tf.Variable(tf.random_normal([num_classes]))
 
@@ -242,7 +242,7 @@ for SNRdB in snrs:
             layer_1 = tf.add(tf.nn.conv1d(x, weights[0], 1, 'VALID'), biases[0])
             hidden_1 = tf.nn.relu(layer_1)
             for i in range(1, layer+1):
-                layer_1 = tf.add(tf.nn.conv1d(hidden_1, weights[i], 1, 'VALID'), biases[i])
+                layer_1 = tf.add(tf.nn.conv1d(hidden_1, weights[i], 1, 'SAME'), biases[i]) # changed from valid
                 hidden_1 = tf.nn.relu(layer_1)
             hidden_3 = tf.reshape(hidden_1, [batch_size, -1])
             out_layer = tf.matmul(hidden_3, weights['out']) + biases['out']
@@ -274,7 +274,7 @@ for SNRdB in snrs:
             return out_layer
         '''
         test_dict = {}
-        for i in range(10):
+        for i in range(10): 
             test_signals, test_freqs, freqs = make_batch_noisy_lohi(batch_size // log, SNRdB, N, m)
             test_signals_pair = np.zeros((batch_size, m, 2))
             test_signals_pair[:, :, 0] = np.real(test_signals)
@@ -355,8 +355,8 @@ for SNRdB in snrs:
     print(bin_accs[-1])
     print(freq_accs[-1])
     
-np.save('./data/divide_conquer/snrs_8192', snrs)   
-np.save('./data/divide_conquer/snr_acc_binary_8192', bin_accs)
-np.save('./data/divide_conquer/snr_acc_frequency_8192', freq_accs)
+np.save('./data/divide_conquer/snrs_512', snrs)   
+np.save('./data/divide_conquer/snr_acc_binary_512', bin_accs)
+np.save('./data/divide_conquer/snr_acc_frequency_512', freq_accs)
 
 
