@@ -54,9 +54,11 @@ def make_noisy_lohi(SNRdb, N, m, freq):
     signals, vals = [], []
     steps = int(np.log2(N))
     w = (2 * np.pi * freq / N) % (2 * np.pi)
-    sig = make_noisy_signal(w, 0, SNRdb, m * (2**steps))
+    sig = make_noisy_signal(w, 0, SNRdb, N)
+    start = 0
     for i in range(int(np.log2(N))):
-        signals.append([sig[a * (2**i)] for a in range(m)])
+        start = start + np.random.randint(N // 4) if i > 0 else 0
+        signals.append([sig[(start + a * (2**i)) % N] for a in range(m)])
         if (freq * (2**i)) % (N) < N / 2:
             vals.append([1])
         else:
@@ -195,10 +197,10 @@ def bit_to_freq(bits, N):
 
 # div and conquer freq detect
 
-N = 512 #1024 
+N = 1024 
 #SNRdB = -2
 layer = 6
-m = 27
+m = 10
 
 log = int(np.log2(N))
 
@@ -355,8 +357,8 @@ for SNRdB in snrs:
     print(bin_accs[-1])
     print(freq_accs[-1])
     
-np.save('./data/divide_conquer/snrs_512', snrs)   
-np.save('./data/divide_conquer/snr_acc_binary_512', bin_accs)
-np.save('./data/divide_conquer/snr_acc_frequency_512', freq_accs)
+np.save('./data/divide_conquer/snrs_1024shift', snrs)   
+np.save('./data/divide_conquer/snr_acc_binary_1024shift', bin_accs)
+np.save('./data/divide_conquer/snr_acc_frequency_1024shift', freq_accs)
 
 
