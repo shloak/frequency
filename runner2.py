@@ -39,13 +39,16 @@ def make_batch_noisy(batch_size, SNRdb, N, m, binary=False):
 
 # N = divisor of w0
 # m = num samples
-def make_batch_noisy_lohi(batch_size, SNRdb, N, m):
+def make_batch_noisy_lohi(batch_size, SNRdb, N, m, no_boundary=False):
     freqs = []
     freqs.append(np.random.randint(0, N))
     test_signals, test_freqs = make_noisy_lohi(SNRdB, N, m, freqs[-1])
     for i in range(1, batch_size):
-        freqs.append(np.random.randint(0, N))
-        a, b = make_noisy_lohi(SNRdB, N, m, freqs[-1])
+        freq = np.random.randint(0, N)
+        if no_boundary:
+            freq = np.random.randint(N // 16, 7 * N // 16) if np.random.random() < 0.5 else np.random.randint(9 * N // 16, 15 * N // 16)
+        freqs.append(freq)
+        a, b = make_noisy_lohi(SNRdB, N, m, freq)
         test_signals.extend(a)
         test_freqs.extend(b)
     return test_signals, test_freqs, freqs
@@ -57,7 +60,7 @@ def make_noisy_lohi(SNRdb, N, m, freq):
     sig = make_noisy_signal(w, 0, SNRdb, N)
     start = 0
     for i in range(int(np.log2(N))):
-        start = start + np.random.randint(N // 4) if i > 0 else 0
+        start = 0 # start + np.random.randint(N // 4) if i > 0 else 0
         signals.append([sig[(start + a * (2**i)) % N] for a in range(m)])
         if (freq * (2**i)) % (N) < N / 2:
             vals.append([1])
@@ -197,10 +200,10 @@ def bit_to_freq(bits, N):
 
 # div and conquer freq detect
 
-N = 1024 
+N = 1024
 #SNRdB = -2
 layer = 6
-m = 10
+m = 30
 
 log = int(np.log2(N))
 
@@ -226,6 +229,26 @@ for SNRdB in snrs:
 
     t_bins = []
     t_freqs = []
+
+    test_dict = {}
+    for i in range(20): 
+        test_signals, test_freqs, freqs = make_batch_noisy_lohi(batch_size // log, SNRdB, N, m)
+        test_signals_pair = np.zeros((batch_size, m, 2))
+        test_signals_pair[:, :, 0] = np.real(test_signals)
+        test_signals_pair[:, :, 1] = np.imag(test_signals)
+        test_dict[i] = (test_signals_pair, test_freqs, freqs)
+
+
+    training_size = 5999
+    dict = {}
+    for i in range(training_size):
+        batch_x, batch_y, batch_freqs = make_batch_noisy_lohi(batch_size // log, SNRdB - (i % 3), N, m)
+        batch_x_pair = np.zeros((batch_size, m, 2))
+        batch_x_pair[:, :, 0] = np.real(batch_x)
+        batch_x_pair[:, :, 1] = np.imag(batch_x)
+        dict[i] = (batch_x_pair, batch_y)
+
+
     for trial in range(4):
         print(trial)
         # tf Graph input
@@ -250,48 +273,6 @@ for SNRdB in snrs:
             out_layer = tf.matmul(hidden_3, weights['out']) + biases['out']
             return out_layer
 
-
-        '''weights = {
-            'h1': tf.Variable(tf.random_normal([5, 2, 2])), # filtersize, in channels, outchannels
-            'out': tf.Variable(tf.random_normal([(m-4-2-2)*2, num_classes])),
-            'h2': tf.Variable(tf.random_normal([3, 2, 2])),
-            'h3': tf.Variable(tf.random_normal([3, 2, 2]))
-        }
-        biases = {
-            'b1': tf.Variable(tf.random_normal([2])),
-            'out': tf.Variable(tf.random_normal([num_classes])),
-            'b2': tf.Variable(tf.random_normal([2])),
-            'b3': tf.Variable(tf.random_normal([2]))
-        }
-
-        def neural_net(x):
-            layer_1 = tf.add(tf.nn.conv1d(x, weights['h1'], 1, 'VALID'), biases['b1'])
-            hidden_1 = tf.nn.relu(layer_1)
-            layer_2 = tf.add(tf.nn.conv1d(hidden_1, weights['h2'], 1, 'VALID'), biases['b2'])
-            hidden_2 = tf.nn.relu(layer_2)
-            layer_3 = tf.add(tf.nn.conv1d(hidden_2, weights['h3'], 1, 'VALID'), biases['b3'])
-            hidden_3 = tf.nn.relu(layer_3)
-            hidden_3 = tf.reshape(hidden_3, [batch_size, -1])
-            out_layer = tf.matmul(hidden_3, weights['out']) + biases['out']
-            return out_layer
-        '''
-        test_dict = {}
-        for i in range(10): 
-            test_signals, test_freqs, freqs = make_batch_noisy_lohi(batch_size // log, SNRdB, N, m)
-            test_signals_pair = np.zeros((batch_size, m, 2))
-            test_signals_pair[:, :, 0] = np.real(test_signals)
-            test_signals_pair[:, :, 1] = np.imag(test_signals)
-            test_dict[i] = (test_signals_pair, test_freqs, freqs)
-
-
-        training_size = 3999
-        dict = {}
-        for i in range(training_size):
-            batch_x, batch_y, batch_freqs = make_batch_noisy_lohi(batch_size // log, SNRdB - (i % 3), N, m)
-            batch_x_pair = np.zeros((batch_size, m, 2))
-            batch_x_pair[:, :, 0] = np.real(batch_x)
-            batch_x_pair[:, :, 1] = np.imag(batch_x)
-            dict[i] = (batch_x_pair, batch_y)
 
 
 
@@ -357,8 +338,8 @@ for SNRdB in snrs:
     print(bin_accs[-1])
     print(freq_accs[-1])
     
-np.save('./data/divide_conquer/snrs_1024shift', snrs)   
-np.save('./data/divide_conquer/snr_acc_binary_1024shift', bin_accs)
-np.save('./data/divide_conquer/snr_acc_frequency_1024shift', freq_accs)
+np.save('./data/divide_conquer/snrs_1024t2', snrs)   
+np.save('./data/divide_conquer/snr_acc_binary_1024t2', bin_accs)
+np.save('./data/divide_conquer/snr_acc_frequency_1024t2', freq_accs)
 
 
