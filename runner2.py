@@ -3,24 +3,24 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import math
 
-def make_signal(w,theta,n):
+def make_signal(w,theta,m):
     """
     Assumes normalized amplitude
     """
-    t = np.arange(n)
+    t = np.arange(m)
     signal = np.exp(1j*(w*t + theta))
     return signal
 
-def make_noise(sigma2,n):
+def make_noise(sigma2,m):
     noise_scaling = np.sqrt(sigma2/2)
     # noise is complex valued
-    noise  = noise_scaling*np.random.randn(n) + 1j*noise_scaling*np.random.randn(n)
+    noise  = noise_scaling*np.random.randn(m) + 1j*noise_scaling*np.random.randn(m)
     return noise
 
-def make_noisy_signal(w,theta,SNRdb,n):
+def make_noisy_signal(w,theta,SNRdb,m):
     sigma2 = get_sigma2_from_snrdb(SNRdb)
-    signal = make_signal(w,theta,n)
-    noise  = make_noise(sigma2,n)
+    signal = make_signal(w,theta,m)
+    noise  = make_noise(sigma2,m)
     return signal + noise
 
 # N = divisor of w0
@@ -40,18 +40,22 @@ def make_batch_noisy(batch_size, SNRdb, N, m, binary=False):
 # N = divisor of w0
 # m = num samples
 # starts = shift for each subsequent sample
-def make_batch_noisy_lohi(batch_size, SNRdb, N, m, starts=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]):
+def make_batch_noisy_lohi(batch_size, SNRdb, N, m, inds, starts=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]):
     freqs = []
+    randoms = []
     freqs.append(np.random.randint(0, N))
-    test_signals, test_freqs = make_noisy_lohi(SNRdB, N, m, freqs[-1], starts)
+    test_signals, test_freqs, test_rand = make_noisy_lohi(SNRdB, N, m, freqs[-1], inds, starts)
+    randoms.append(test_rand)
     for i in range(1, batch_size):
         freqs.append(np.random.randint(0, N))
-        a, b = make_noisy_lohi(SNRdB, N, m, freqs[-1], starts)
+        a, b, c = make_noisy_lohi(SNRdB, N, m, freqs[-1], inds, starts)
         test_signals.extend(a)
         test_freqs.extend(b)
-    return test_signals, test_freqs, freqs
+        randoms.append(c)
+    return test_signals, test_freqs, freqs, randoms
 
-def make_noisy_lohi(SNRdb, N, m, freq, starts):
+# inds=random indices used to test mle
+def make_noisy_lohi(SNRdb, N, m, freq, inds, starts):
     signals, vals = [], []
     steps = int(np.log2(N))
     w = (2 * np.pi * freq / N) % (2 * np.pi)
@@ -64,7 +68,7 @@ def make_noisy_lohi(SNRdb, N, m, freq, starts):
             vals.append([0])
         else:
             vals.append([1])
-    return signals, vals
+    return signals, vals, np.take(sig, inds)
         
 
 def make_batch_singleton(batch_size, SNRdb, N, m, default=-1): # 0 = zero, 1 = single, 2 = multi
@@ -87,6 +91,11 @@ def make_batch_singleton(batch_size, SNRdb, N, m, default=-1): # 0 = zero, 1 = s
             signals.append(signal + make_noise(sigma2, m))
             freqs.append([0, 0, 1])
     return signals, freqs
+
+def make_batch_parity(signals, freqs):
+    bits = [[(np.binary_repr(f, width=14).count('1') % 2)] for f in freqs]
+    #bits = [[(int(np.binary_repr(f, width=14)[0]) % 2)] for f in freqs]
+    return (signals, bits)
 
 def get_sigma2_from_snrdb(SNR_db):
     return 10**(-SNR_db/10)
@@ -195,30 +204,97 @@ def bit_to_freq(bits, N):
             possible = possible[len(possible)//2:]
     return possible[0]
 
-# div and conquer freq detect
+def convert_bits(bits):
+    val = 0
+    for i in range(len(bits)):
+        val += bits[len(bits) - 1 - i] * (2**i)
+    return val
 
-N = 1024 
-#SNRdB = -2
-layer = 6
-m = 30
+def make_signal_random(w,theta, N, m, inds):
+    sig = make_signal(w, theta, N)
+    #chosen_indices = np.sort(np.random.choice(range(N), size=m, replace=False))
+    return np.take(sig, inds)
 
-log = int(np.log2(N))
+def test_all_1bit(bits, N, m, signal):
+    vals = []
+    new_signal = np.zeros((m))
+    new_signal = signal[:, 0] + 1j*signal[:, 1]
+    signal = new_signal
+    min_ind = convert_bits(bits)
+    sig = make_signal((convert_bits(bits) * 2*np.pi/N), 0, m)
+    min_val = np.vdot(sig - signal, sig - signal)
+    vals.append(min_val)
+    for i in range((len(bits) // 2)): # because less significant bits have more wiggle - easier to cause false error
+        bits[i] = abs(bits[i] - 1)
+        sig = make_signal((convert_bits(bits) * 2*np.pi/N), 0, m)
+        resid = np.vdot(sig - signal, sig - signal)
+        vals.append(resid)
+        if resid < min_val: 
+            min_val = resid
+            min_ind = convert_bits(bits)
+        bits[i] = abs(bits[i] - 1)
+    #print('thresh: ', min_ind)
+    #print(vals)
+    #print(min_ind == convert_bits(bits))
+    return min_ind
+
+def test_all_1bit_random(bits, N, m, signal, inds): # try set of all combined measurements mle
+    vals = []
+    #new_signal = np.zeros((m))
+    #new_signal = signal[:, 0] + 1j*signal[:, 1]
+    #signal = new_signal
+    min_ind = convert_bits(bits)
+    sig = make_signal_random((convert_bits(bits) * 2*np.pi/N), 0, N, m, inds)
+    min_val = np.vdot(sig - signal, sig - signal)
+    vals.append(min_val)
+    for i in range((len(bits))): # because less significant bits have more wiggle - easier to cause false error
+        bits[i] = abs(bits[i] - 1)
+        sig = make_signal_random((convert_bits(bits) * 2*np.pi/N), 0, N, m, inds)
+        resid = np.vdot(sig - signal, sig - signal)
+        vals.append(resid)
+        if resid < min_val: 
+            min_val = resid
+            min_ind = convert_bits(bits)
+        bits[i] = abs(bits[i] - 1)
+    #print('thresh: ', min_ind)
+    #print(vals)
+    #print(min_ind == convert_bits(bits))
+    return min_ind
+
+    # div and conquer freq detect - varying N, m
+
+#N = 16384 
+layer = 2  
+layer2 = 5
+#m = 30
+TRIALS = 5 #10 
+TEST_BATCHES = 75
+SNRdB = 8
+
+#log = int(np.log2(N))
 
 # Parameters
 learning_rate = 0.005
-num_iter = 80000
-batch_size = log * 20
+num_iter = 17500 #80000
+#batch_size = log * 20
+batch_size2 = 20
 
 
 
 # Network Parameters
 num_classes = 1
 
-snrs = [10, 8, 6, 4, 2, 0, -2]
+#snrs = [10, 8, 6, 4, 2, 0, -2]
+#snrs = [4, 2, 0, -2]
+#Ns = [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576]
+Ns = [1048576]
 
+#Ms = [20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40]
+Ms = [40]
 
 bin_accs = []
 freq_accs = []
+freq_accs2 = []
 all_preds = []
 all_actuals = []
 
@@ -226,37 +302,46 @@ all_actuals = []
 #for i in range(1, log): # filling all the starting points
 #    starts.append(starts[i-1] + np.random.randint(N // 4))
 
-starts = [0] * 15
+starts = [0] * 25 # if starting at 0 every resample
+#indices = np.sort(np.random.choice(range(N), size=m, replace=False))
 
-for SNRdB in snrs:
-    print(SNRdB)
+for N, m in zip(Ns, Ms):
+    print('N:', N, ' m:', m)
+    log = int(np.log2(N))
+    batch_size = log * 20
+    indices = np.sort(np.random.choice(range(N), size=m, replace=False))
+    
 
     t_bins = []
     t_freqs = []
+    t_freqs2 = []
     t_preds = []
     t_actuals = []
     
-    training_size = 5999
+    training_size = 100 #2999 #5999
     dict = {}
+    dict2 = {}
     for i in range(training_size):
         if i % 500 == 0:
-            print(i)
-        batch_x, batch_y, batch_freqs = make_batch_noisy_lohi(batch_size // log, SNRdB - (i % 3), N, m, starts)
+            print('gen training batch:', i)
+        batch_x, batch_y, batch_freqs, batch_rands = make_batch_noisy_lohi(batch_size // log, SNRdB - 2, N, m, indices, starts) # i % 3
         batch_x_pair = np.zeros((batch_size, m, 2))
         batch_x_pair[:, :, 0] = np.real(batch_x)
         batch_x_pair[:, :, 1] = np.imag(batch_x)
-        dict[i] = (batch_x_pair, batch_y)
+        dict[i] = (batch_x_pair, batch_y, batch_rands)
+        #dict2[i] = make_batch_parity([batch_x_pair[j] for j in range(0, len(batch_x_pair), log)], batch_freqs)
     
-    for trial in range(4):
-        print(trial)
+    for trial in range(TRIALS):
+        print('TRIAL:', trial)
         # tf Graph input
         X = tf.placeholder("float", [None, m, 2])
         Y = tf.placeholder("float", [None, num_classes])
+        Y2 = tf.placeholder("float", [None, num_classes])
 
-        # Store layers weight & bias
-        weights = {i: tf.Variable(tf.random_normal([3, 2, 2])) for i in range(1, layer+1)}
+        # weights for frequency classification
+        weights = {i: tf.Variable(tf.random_normal([3, 2, 2])) for i in range(1, layer+1)} # increase out channels, less layers
         weights[0] = tf.Variable(tf.random_normal([5, 2, 2]))
-        weights['out'] = tf.Variable(tf.random_normal([(m-4-(0*layer))*2, num_classes]))
+        weights['out'] = tf.Variable(tf.random_normal([(m-4-(2*layer))*2, num_classes]))
         biases = {i: tf.Variable(tf.random_normal([2])) for i in range(layer+1)}
         biases['out'] = tf.Variable(tf.random_normal([num_classes]))
 
@@ -265,20 +350,44 @@ for SNRdB in snrs:
             layer_1 = tf.add(tf.nn.conv1d(x, weights[0], 1, 'VALID'), biases[0])
             hidden_1 = tf.nn.relu(layer_1)
             for i in range(1, layer+1):
-                layer_1 = tf.add(tf.nn.conv1d(hidden_1, weights[i], 1, 'SAME'), biases[i])
-                hidden_1 = tf.nn.relu(layer_1)
+                layer_1 = tf.add(tf.nn.conv1d(hidden_1, weights[i], 1, 'VALID'), biases[i]) # no padding
+                hidden_1 = tf.nn.relu(layer_1) # try: elu, leaky
+                ###hidden_1 = tf.layers.batch_normalization(hidden_1)
+                ### instance normalize
             hidden_3 = tf.reshape(hidden_1, [batch_size, -1])
             out_layer = tf.matmul(hidden_3, weights['out']) + biases['out']
+            return out_layer
+        
+        # weights for parity network
+        weights2 = {i: tf.Variable(tf.random_normal([3, 2, 2])) for i in range(1, layer2+1)} # increase out channels, less layers
+        weights2[0] = tf.Variable(tf.random_normal([5, 2, 2]))
+        weights2['out'] = tf.Variable(tf.random_normal([(m-4-(2*layer2))*2, num_classes]))
+        biases2 = {i: tf.Variable(tf.random_normal([2])) for i in range(layer2+1)}
+        biases2['out'] = tf.Variable(tf.random_normal([num_classes]))
+
+
+        def neural_net2(x):
+            layer_1 = tf.add(tf.nn.conv1d(x, weights2[0], 1, 'VALID'), biases2[0])
+            hidden_1 = tf.nn.relu(layer_1)
+            for i in range(1, layer2+1):
+                layer_1 = tf.add(tf.nn.conv1d(hidden_1, weights2[i], 1, 'VALID'), biases2[i]) # no padding
+                hidden_1 = tf.nn.relu(layer_1) # try: elu, leaky
+                ###hidden_1 = tf.layers.batch_normalization(hidden_1)
+                ### instance normalize
+            hidden_3 = tf.reshape(hidden_1, [batch_size2, -1])
+            out_layer = tf.matmul(hidden_3, weights2['out']) + biases2['out']
             return out_layer
 
 
         test_dict = {}
-        for i in range(10):
-            test_signals, test_freqs, freqs = make_batch_noisy_lohi(batch_size // log, SNRdB, N, m, starts)
+        test_dict2 = {}
+        for i in range(TEST_BATCHES):
+            test_signals, test_freqs, freqs, test_rands = make_batch_noisy_lohi(batch_size // log, SNRdB, N, m, indices, starts)
             test_signals_pair = np.zeros((batch_size, m, 2))
             test_signals_pair[:, :, 0] = np.real(test_signals)
             test_signals_pair[:, :, 1] = np.imag(test_signals)
-            test_dict[i] = (test_signals_pair, test_freqs, freqs)
+            test_dict[i] = (test_signals_pair, test_freqs, freqs, test_rands)
+            #test_dict2[i] = make_batch_parity([test_signals_pair[j] for j in range(0, len(test_signals_pair), log)], freqs)
 
 
 
@@ -298,6 +407,23 @@ for SNRdB in snrs:
         pred_class = tf.greater(prediction, 0.5)
         correct_pred = tf.equal(pred_class, tf.equal(Y, 1))
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        
+        # Construct model (parity)
+        logits2 = neural_net2(X)
+        prediction2 = tf.nn.sigmoid(logits2)
+        losses2, accuracies2 = [], []
+
+        # Define loss and optimizer
+        loss_op2 = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+            logits=logits2, labels=Y2))  
+
+        optimizer2 = tf.train.AdamOptimizer(learning_rate=0.00005)
+        train_op2 = optimizer2.minimize(loss_op2)
+
+        # Evaluate model
+        pred_class2 = tf.greater(prediction2, 0.5)
+        correct_pred2 = tf.equal(pred_class2, tf.equal(Y2, 1))
+        accuracy2 = tf.reduce_mean(tf.cast(correct_pred2, tf.float32))
 
         # Initialize the variables (i.e. assign their default value)
         init = tf.global_variables_initializer()
@@ -310,20 +436,30 @@ for SNRdB in snrs:
             print("Training Started")
 
             for step in range(1, num_iter + 1):
-                batch_x_pair, batch_y = dict[step % training_size]
+                batch_x_pair, batch_y, rands = dict[step % training_size]
+                #batch_x_pair2, batch_y2 = dict2[step % training_size]
 
                 # Run optimization op (backprop)
                 sess.run(train_op, feed_dict={X: batch_x_pair, Y: batch_y})
+                #sess.run(train_op2, feed_dict={X: batch_x_pair2, Y2: batch_y2})
+                
                 if step % 500 == 0:
                     # Calculate batch loss and accuracy
                     loss, acc, pred = sess.run([loss_op, accuracy, prediction], feed_dict={X: batch_x_pair,
                                                                          Y: batch_y})
+                    #loss2, acc2, pred2 = sess.run([loss_op2, accuracy2, prediction2], feed_dict={X: batch_x_pair2,
+                    #                                                     Y2: batch_y2})
 
                     accuracies.append(acc)
                     losses.append(loss)
-                    print("Iter " + str(step) + ", Minibatch Loss= " + \
+                    print("Freq Iter " + str(step) + ", Minibatch Loss= " + \
                           "{:.4f}".format(loss) + ", Training Accuracy= " + \
                           "{:.3f}".format(acc))
+                    #print("Pari Iter " + str(step) + ", Minibatch Loss= " + \
+                    #      "{:.4f}".format(loss2) + ", Training Accuracy= " + \
+                    #      "{:.3f}".format(acc2))
+                    #print(pred2)
+                    #print(batch_y2)
             print("Training Finished")
             preds = [sess.run(prediction, feed_dict={X: test_dict[i][0], Y: test_dict[i][1]}) for i in range(len(test_dict))]  
             nn_acc = [sess.run(accuracy, feed_dict={X: test_dict[i][0], Y: test_dict[i][1]}) for i in range(len(test_dict))]   
@@ -334,156 +470,36 @@ for SNRdB in snrs:
         t_bins.append(np.median(nn_acc))
         preds = np.round(preds)
         corr = []
+        corr2 = []
         for a in range(len(test_dict)):
             fs = []
+            fs2 = []
             for k in range(len(preds[a]) // log):
-                    fs.append(bit_to_freq(preds[a][k * log : (k+1) * log], N))
+                    ##fs2.append(bit_to_freq(preds[a][k * log : (k+1) * log], N))
+                    fs2.append(convert_bits(preds[a][k * log : (k+1) * log]))
+                    #fs2.append(test_all_1bit(preds[a][k * log : (k+1) * log], N, m, test_dict[a][0][k * log]))
+                    fs.append(test_all_1bit_random(preds[a][k * log : (k+1) * log], N, m, test_dict[a][3][k], indices))
             corr.extend([fs[i] == test_dict[a][2][i] % N for i in range(len(fs))])
+            corr2.extend([fs2[i] == test_dict[a][2][i] % N for i in range(len(fs2))])
         t_freqs.append(np.sum(corr) / (len(fs) * len(test_dict)))
+        t_freqs2.append(np.sum(corr2) / (len(fs) * len(test_dict)))
+        print('random:', t_freqs[-1])
+        print('single:', np.sum(corr2) / (len(fs2) * len(test_dict)))
+        
     bin_accs.append(max(t_bins))
     freq_accs.append(max(t_freqs))
+    freq_accs2.append(max(t_freqs2))
     all_preds.append(t_preds[np.argmax(t_freqs)])
     all_actuals.append(t_actuals[np.argmax(t_freqs)])
-    print(bin_accs[-1])
-    print(freq_accs[-1])
+    print('best bin classifier acc:', bin_accs[-1])
+    print('best freq detection acc:', freq_accs[-1])
+    print('best freq2 detection acc:', freq_accs2[-1])
     
-np.save('./data/testing/snrs', snrs)   
-np.save('./data/testing/acc_binary', bin_accs)
-np.save('./data/testing/acc_frequency', freq_accs)
-np.save('./data/testing/preds_frequency', all_preds)
-np.save('./data/testing/actuals_frequency', all_actuals)
+np.save('./data/freq_new_network/N_testing/Ns', Ns)   
+np.save('./data/freq_new_network/N_testing/acc_binary_8db_random', bin_accs)
+np.save('./data/freq_new_network/N_testing/acc_frequency_8db_random', freq_accs)
+np.save('./data/freq_new_network/N_testing/acc_frequency_8db_single', freq_accs2)
+##np.save('./data/freq_new_network/preds_frequency', all_preds)
+##np.save('./data/freq_new_network/actuals_frequency', all_actuals)
 
 
-# seeing snr vs accuracy for singleton detection (kay vs nn)
-
-nn_accs = []
-kays = []
-all_preds = []
-actuals = []
-
-snrs = [8, 6, 4, 2, 0, -2, -4, -6]
-
-for SNRdB in snrs:
-    
-    trial_nn = []
-    trial_kay = []
-    trial_preds = []
-    trial_actuals = []
-    for _ in range(5):
-
-        N = 27000 #512
-        #SNRdB = 0
-        m = 300 #16
-
-        # Parameters
-        learning_rate = 0.005
-        num_iter = 10000
-        batch_size = 1000
-
-        # Network Parameters
-        num_classes = 3
-
-        # tf Graph input
-        X = tf.placeholder("float", [None, m, 2])
-        Y = tf.placeholder("float", [None, num_classes])
-
-        # Store layers weight & bias
-        weights = {
-            'h1': tf.Variable(tf.random_normal([5, 2, 2])), # filtersize, in channels, outchannels
-            'out': tf.Variable(tf.random_normal([(m-4-2-2)*2, num_classes])),
-            'h2': tf.Variable(tf.random_normal([3, 2, 2])),
-            'h3': tf.Variable(tf.random_normal([3, 2, 2]))
-        }
-        biases = {
-            'b1': tf.Variable(tf.random_normal([2])),
-            'out': tf.Variable(tf.random_normal([num_classes])),
-            'b2': tf.Variable(tf.random_normal([2])),
-            'b3': tf.Variable(tf.random_normal([2]))
-        }
-
-        test_signals, test_freqs = make_batch_singleton(batch_size, SNRdB, N, m)
-        test_signals_pair = np.zeros((batch_size, m, 2))
-        test_signals_pair[:, :, 0] = np.real(test_signals)
-        test_signals_pair[:, :, 1] = np.imag(test_signals)
-        
-        training_size = 1000
-        dict = {}
-        for i in range(training_size):
-            batch_x, batch_y = make_batch_singleton(batch_size, SNRdB, N, m)
-            batch_x_pair = np.zeros((batch_size, m, 2))
-            batch_x_pair[:, :, 0] = np.real(batch_x)
-            batch_x_pair[:, :, 1] = np.imag(batch_x)
-            dict[i] = (batch_x_pair, batch_y)
-
-        def neural_net(x):
-            layer_1 = tf.add(tf.nn.conv1d(x, weights['h1'], 1, 'VALID'), biases['b1'])
-            hidden_1 = tf.nn.relu(layer_1)
-            layer_2 = tf.add(tf.nn.conv1d(hidden_1, weights['h2'], 1, 'VALID'), biases['b2'])
-            hidden_2 = tf.nn.relu(layer_2)
-            layer_3 = tf.add(tf.nn.conv1d(hidden_2, weights['h3'], 1, 'VALID'), biases['b3'])
-            hidden_3 = tf.nn.relu(layer_3)
-            hidden_3 = tf.reshape(hidden_3, [batch_size, -1])
-            out_layer = tf.matmul(hidden_3, weights['out']) + biases['out']
-            return out_layer
-
-        # Construct model
-        logits = neural_net(X)
-        prediction = tf.nn.softmax(logits)
-        losses, accuracies = [], []
-
-        # Define loss and optimizer
-        loss_op = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-            logits=logits, labels=Y))  
-        '''+ 0.01*tf.nn.l2_loss(weights['h1']) + 0.01*tf.nn.l2_loss(weights['h2']) + 0.01*tf.nn.l2_loss(weights['out']) \
-        + 0.01*tf.nn.l2_loss(biases['b1']) + 0.01*tf.nn.l2_loss(biases['b2']) + 0.01*tf.nn.l2_loss(biases['out']) '''
-        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-        train_op = optimizer.minimize(loss_op)
-
-        # Evaluate model
-        correct_pred = tf.equal(tf.argmax(prediction, 1), tf.argmax(Y, 1))
-        accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-
-        # Initialize the variables (i.e. assign their default value)
-        init = tf.global_variables_initializer()
-
-        # Start training
-        with tf.Session() as sess:
-
-            # Run the initializer
-            sess.run(init)
-
-            for step in range(1, num_iter + 1):
-                batch_x_pair, batch_y = dict[step % training_size]
-
-                # Run optimization op (backprop)
-                sess.run(train_op, feed_dict={X: batch_x_pair, Y: batch_y})
-                if step % 500 == 0:
-                    # Calculate batch loss and accuracy
-                    loss, acc, pred = sess.run([loss_op, accuracy, prediction], feed_dict={X: batch_x_pair,
-                                                                         Y: batch_y})
-
-                    accuracies.append(acc)
-                    losses.append(loss)
-                    #print("snr: ", SNRdB)
-                    #print("Iter " + str(step) + ", Minibatch Loss= " + \
-                    #      "{:.4f}".format(loss) + ", Training Accuracy= " + \
-                    #      "{:.3f}".format(acc))
-            print("Training Finished for snr=", SNRdB)
-
-            nn_acc = sess.run(accuracy, feed_dict={X: test_signals_pair, Y: test_freqs})     
-            preds = sess.run(prediction, feed_dict={X: test_signals_pair, Y: test_freqs})
-            kay_acc = kays_singleton_accuracy(test_signals, test_freqs, m) 
-            trial_nn.append(nn_acc)
-            trial_kay.append(kay_acc)
-            trial_preds.append(preds)
-            trial_actuals.append(test_freqs)
-    nn_accs.append(np.max(trial_nn))
-    kays.append(np.max(trial_kay))
-    all_preds.append(trial_preds[np.argmax(trial_nn)])
-    actuals.append(trial_actuals[np.argmax(trial_nn)])
-        
-np.save('./data/testing/snrs_single', snrs)
-np.save('./data/testing/nn_single', nn_accs)
-np.save('./data/testing/kay_single', kays)
-np.save('./data/testing/preds_single', all_preds)
-np.save('./data/testing/actuals_single', actuals)
