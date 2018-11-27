@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import math
+import time
+
 
 def make_signal(w,theta,n):
     """
@@ -278,38 +280,52 @@ def make_batch_noisy_random_inds(batch_size, SNRdb, N, m, inds):
 
 # indices are constant
 def test_noisy_mle_random_inds(N, m, signals, freqs, inds, cleans):
+    start = time.time()
     count = 0  
                      
     for index in range(len(signals)):
         dots = [np.absolute(np.vdot(signals[index], cleans[i])) for i in range(N)]
         if np.argmax(freqs[index]) == np.argmax(dots):
             count += 1
-    return count / len(freqs)
+    end = time.time()
+    return count / len(freqs), end - start
 
 # test mle detection for singletons - same random m samples
 
 #snrs = [4, 2, 0, -2] #[10, 8, 6, 4, 2, 0, -2]
-snrs = [-2, -6, -10, -14, -18]
-N = 16384 
+#snrs = [-2, -6, -10, -14, -18]
+#N = 16384 
 m = 166
 batch_size = 1500
-#SNRdB = 2
-indices = np.sort(np.random.choice(range(N), size=m, replace=False))
-cleans = [np.take(make_signal(2*np.pi*i/N, 0, N), indices) for i in range(N)]
+SNRdB = -2
+#indices = np.sort(np.random.choice(range(N), size=m, replace=False))
+#cleans = [np.take(make_signal(2*np.pi*i/N, 0, N), indices) for i in range(N)]
 
 res = []
-#Ms = [100, 80, 60, 40, 20]
+times = []
+#Ms = [100, 80, 60, 40, 20, 10]
+Ns = [1024, 2048, 4096, 8192, 16384, 32768, 65536]
 
-for SNRdB in snrs:
-    print(SNRdB)
-    #indices = np.sort(np.random.choice(range(N), size=m, replace=False))
-    #cleans = [np.take(make_signal(2*np.pi*i/N, 0, N), indices) for i in range(N)]
+for N in Ns:
+    print(N)
+    indices = np.sort(np.random.choice(range(N), size=m, replace=False))
+    cleans = [np.take(make_signal(2*np.pi*i/N, 0, N), indices) for i in range(N)]
     test_signals, test_freqs = make_batch_noisy_random_inds(batch_size, SNRdB, N, m, indices)
-    res.append(test_noisy_mle_random_inds(N, m, test_signals, test_freqs, indices, cleans))
+    result, timer = test_noisy_mle_random_inds(N, m, test_signals, test_freqs, indices, cleans)
+    res.append(result)
+    times.append(timer / batch_size)
     print(res[-1])
+    print(timer / batch_size)
     
-plt.plot(snrs, res)
-plt.title('MLE: 16384 possible frequencies, 166 samples')
+'''plt.plot(Ms, res, '-bo')
+plt.title('MLE: 16384 possible frequencies, -2 dB SNR')
+plt.xlabel('Number of Samples', fontsize=18)
+plt.ylabel('frequency detection accuracy', fontsize=14)
+plt.show()'''
+plt.plot(Ns, times, '-bo')
+plt.title('MLE: time')
+plt.xlabel('N', fontsize=18)
+plt.ylabel('time', fontsize=14)
 plt.show()
 #np.save('./data/divide_conquer/snrs_mle_16384_166', snrs)
 #np.save('./data/divide_conquer/mle_random_16384_166', res)
