@@ -352,19 +352,7 @@ for N in Ns:
         # print(res[-1])
         # print(timer / batch_size)
     np.save('./data/mle_timing/times_snr{}_accuracy{}_N{}'.format(SNRdB, accuracy_thresh, N), times)
-    
-'''plt.plot(Ms, res, '-bo')
-plt.title('MLE: 16384 possible frequencies, -2 dB SNR')
-plt.xlabel('Number of Samples', fontsize=18)
-plt.ylabel('frequency detection accuracy', fontsize=14)
-plt.show()'''
-#plt.plot(Ns, times, '-bo')
-#plt.title('MLE: time')
-#plt.xlabel('N', fontsize=18)
-#plt.ylabel('time', fontsize=14)
-#plt.show()
-#np.save('./data/divide_conquer/snrs_mle_16384_166', snrs)
-#np.save('./data/divide_conquer/mle_random_16384_166', res)
+
     
 
  

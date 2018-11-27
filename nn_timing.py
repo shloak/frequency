@@ -453,7 +453,8 @@ for N in Ns:
         times.append(corr_time / nn_test_size)
         prev_m = max(9, prev_m - 5)
 
-    np.save('./data/nn_timing/times_snr{}_accuracy{}_N{}'.format(SNRdB, accuracy_thresh, N), times)
+    np.save('./data/nn_timing/times2_snr{}_accuracy{}_N{}'.format(SNRdB, accuracy_thresh, N), times)
+    np.save('./data/nn_timing/ms_snr{}_accuracy{}_N{}'.format(SNRdB, accuracy_thresh, N), res)
     
 
         
