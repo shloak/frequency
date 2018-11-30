@@ -303,14 +303,14 @@ def make_all_cleans(N, inds):
 #snrs = [-2, -6, -10, -14, -18]
 #N = 16384 
 m = 166
-batch_size = 250
+batch_size = 2500
 SNRdB = 4
 #indices = np.sort(np.random.choice(range(N), size=m, replace=False))
 #cleans = [np.take(make_signal(2*np.pi*i/N, 0, N), indices) for i in range(N)]
 
 res = []
 times = []
-Ns = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576]
+Ns = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768] # , 65536, 131072, 262144, 524288, 1048576]
 accuracy_thresh = 0.95
 trials = 10
 #Ns = [65536, 131072, 262144, 524288, 1048576]
@@ -348,10 +348,11 @@ for N in Ns:
         corr_time = timer if trial_good else prev_time
         print(prev_m, corr_time)
         times.append(corr_time / batch_size)
-        prev_m = max(1, prev_m - 5)
+        prev_m = max(1, prev_m - 2)
         # print(res[-1])
         # print(timer / batch_size)
-    np.save('./data/mle_timing/times_snr{}_accuracy{}_N{}'.format(SNRdB, accuracy_thresh, N), times)
+    np.save('./data/mle_timing/times2_snr{}_accuracy{}_N{}'.format(SNRdB, accuracy_thresh, N), times)
+    np.save('./data/mle_timing/ms_snr{}_accuracy{}_N{}'.format(SNRdB, accuracy_thresh, N), res)
 
     
 
