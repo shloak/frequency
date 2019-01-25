@@ -16,6 +16,8 @@ def test_time_scaling():
             trial2.append(time_full)
         times1.append(np.median(trial1))
         times2.append(np.median(trial2))
+    np.save('./data/times1', times1)
+    np.save('./data/times2', times2)
     plt.plot([a[0] for a in all_ms], times1, '-bo')
     plt.plot([a[0] for a in all_ms], times2, '-ro')
     plt.show()
