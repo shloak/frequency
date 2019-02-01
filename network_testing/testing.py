@@ -22,4 +22,32 @@ def test_time_scaling():
     plt.plot([a[0] for a in all_ms], times2, '-ro')
     plt.show()
     
-test_time_scaling()
+def test_freq_scaling():
+    all_ms = [[a, a + 5] for a in range(10, 100, 5)] 
+    bases, exps, dict_sizes, batch_size = [2, 3], [11, 7], [2500, 500], 10 
+    snrs = [6, 5, 4, 3, 2, 1, 0, -1, -2]
+    for SNRdB in snrs:
+        accs1, accs2 = [], []
+        times1, times2 = [], []
+        for ms in all_ms:
+            trial1, trial2 = [], []
+            ti1, ti2 = [], []
+            for _ in range(8):
+                print(ms)
+                (t1, t2), (all_preds, time_small), (all_preds_full, time_full) = frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iters=8000, layers=1)
+                ti1.append(time_small)
+                ti2.append(time_full)
+                trial1.append(calculate_accuracy(t1, all_preds, dict_sizes[1], batch_size))
+                trial2.append(calculate_accuracy(t1, all_preds_full, dict_sizes[1], batch_size))
+            accs1.append(np.max(trial1))
+            accs2.append(np.max(trial2))
+            times1.append(np.median(ti1))
+            times2.append(np.median(ti2))
+        np.save('./data/accuracy_small_SNR{}'.format(SNRdB), accs1)
+        np.save('./data/accuracy_full_SNR{}'.format(SNRdB), accs2)
+        np.save('./data/times_small_SNR{}'.format(SNRdB), times1)
+        np.save('./data/times_full_SNR{}'.format(SNRdB), times2)
+    #plt.plot([a[0] for a in all_ms], accs1, '-bo')
+    #plt.plot([a[0] for a in all_ms], accs2, '-ro')
+    #plt.show()
+test_freq_scaling()
