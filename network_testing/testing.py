@@ -26,7 +26,7 @@ def test_freq_scaling():
     all_ms = [[a, a + 5] for a in range(10, 100, 5)] 
     bases, exps, dict_sizes, batch_size = [2, 3], [11, 7], [2500, 500], 10 
     N = (bases[0] ** exps[0]) * (bases[1] ** exps[1])
-    snrs = [6, 5, 4, 3, 2, 1, 0, -1, -2]
+    snrs = [5, 4, 3, 2, 1, 0, -1, -2]
     NUM_TRIALS = 8
     for SNRdB in snrs:
         accs1, accs2 = [], []
