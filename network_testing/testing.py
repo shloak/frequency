@@ -25,16 +25,23 @@ def test_time_scaling():
 def test_freq_scaling():
     all_ms = [[a, a + 5] for a in range(10, 100, 5)] 
     bases, exps, dict_sizes, batch_size = [2, 3], [11, 7], [2500, 500], 10 
+    N = (bases[0] ** exps[0]) * (bases[1] ** exps[1])
     snrs = [6, 5, 4, 3, 2, 1, 0, -1, -2]
+    NUM_TRIALS = 8
     for SNRdB in snrs:
         accs1, accs2 = [], []
         times1, times2 = [], []
         for ms in all_ms:
+            indices = np.sort(np.random.choice(range(N), size=ms[0], replace=False))
+            d1, d2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[0], batch_size, SNRdB, indices) 
+            t1, t2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[1], batch_size, SNRdB, indices)
+
             trial1, trial2 = [], []
             ti1, ti2 = [], []
-            for _ in range(8):
+            for _ in range(NUM_TRIALS):
                 print(ms)
-                (t1, t2), (all_preds, time_small), (all_preds_full, time_full) = frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iters=8000, layers=1)
+                (t1, t2), (all_preds, time_small), (all_preds_full, time_full) = frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, 
+                    num_iters=8000, layers=1, mle_indices=indices, train_dicts=(d1, d2), test_dicts=(t1, t2))
                 ti1.append(time_small)
                 ti2.append(time_full)
                 trial1.append(calculate_accuracy(t1, all_preds, dict_sizes[1], batch_size))
