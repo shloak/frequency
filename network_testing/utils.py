@@ -579,12 +579,12 @@ def get_final_frequency(N, train_dict_1, train_dict_2, dict_size, batch_size, ba
 # returns (test_dict_1, test_dict_2), which are of size dict_sizes[0] and have at each index: batch_x, batch_y, rands, freqs
 #         (all_predictions, total_time), which is of size dict_sizes[1] and have at each index: freq, (bits_1, bits_2), and then the total time by method 1 (no error correcting)
 #         (all_predictions_full, total_time_full), which is same as above for method 2 (1 bit comprehensive error correcting using mle)
-def frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iters=5000, layers=3):
+def frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iters=5000, layers=3, mle_indices = None, train_dicts=None, test_dicts=None):
     tf.reset_default_graph()
     N = (bases[0] ** exps[0]) * (bases[1] ** exps[1])
-    indices = np.sort(np.random.choice(range(N), size=ms[0], replace=False))
-    d1, d2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[0], batch_size, SNRdB, indices)
-    t1, t2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[1], batch_size, SNRdB, indices)
+    indices = np.sort(np.random.choice(range(N), size=ms[0], replace=False)) if mle_indices = None else mle_indices
+    d1, d2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[0], batch_size, SNRdB, indices) if train_dicts = None else train_dicts
+    t1, t2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[1], batch_size, SNRdB, indices) if test_dicts = None else test_dicts
     train_nn(N, ms[0], d1, batch_size * exps[0], dict_sizes[0], num_classes=bases[0], layer=layers, num_iter=num_iters)
     time_feedfwd1, allp1, alla1 = test_nn(N, ms[0], t1, dict_sizes[1], batch_size * exps[0], bases[0], exps[0])
     train_nn(N, ms[1], d2, batch_size * exps[1], dict_sizes[0], num_classes=bases[1], layer=layers, num_iter=num_iters)
