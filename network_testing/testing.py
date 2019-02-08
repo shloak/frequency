@@ -62,14 +62,13 @@ def test_freq_scaling():
 def test_mle_timing():
     all_ms = [[a, a + 5] for a in range(10, 60, 5)] 
     bases, exps, test_size = [2, 3], [11, 7], 10
-    N = (bases[0] ** exps[0]) * (bases[1] ** exps[1])
+    N = 100 #(bases[0] ** exps[0]) * (bases[1] ** exps[1])
     snrs = [-2, 5, 4, 3, 2, 1, 0, -1, -2]
-    ##test_noisy_mle_random_inds(N, signals, freqs, inds)
     for SNRdB in snrs:
         sigma2 = get_sigma2_from_snrdb(SNRdB)
         for ms in all_ms:
             ms = [70, 75]
-            sig_len = size_indices_lohi(N, ms, bases, exps)
+            sig_len = 10 #size_indices_lohi(N, ms, bases, exps)
             indices = np.sort(np.random.choice(range(N), size=sig_len, replace=False))
             test_signals = []
             test_freqs = []
@@ -78,7 +77,7 @@ def test_mle_timing():
                 test_freqs.append(index)
                 w = 2 * np.pi * index / N
                 test_signals.append([np.exp(1j*(w*ind)) + make_noise(sigma2, 1)[0] for ind in indices])
-            acc, time = test_noisy_mle_random_inds(N, test_signals, test_freqs, indices, plotting=True)
+            acc, time = test_noisy_mle_random_inds(N, test_signals, test_freqs, indices, plotting=False)
             print(acc, time)
 
 def test_kay_timing():
@@ -94,6 +93,29 @@ def test_kay_timing():
             signals, freqs = make_batch_noisy(test_size, SNRdB, N, sig_len)
             acc, time = test_kays(signals, freqs, N, sig_len, T= 10*(exps[0] * exps[1])) # change to not one hot and use random indices for mle instead of sequential, but regardless acc is 0
             print(acc, time)
-test_mle_timing()
+
+def test_mle_accuracy():
+    all_ms = [[60, 65]] #[[a, a + 5] for a in range(10, 60, 5)] 
+    bases, exps, test_size = [2, 3], [11, 7], 10
+    N = (bases[0] ** exps[0]) * (bases[1] ** exps[1])
+    snrs = [-2] #[-2, 5, 4, 3, 2, 1, 0, -1, -2]
+    for SNRdB in snrs:
+        sigma2 = get_sigma2_from_snrdb(SNRdB)
+        for ms in all_ms:
+            #ms = [70, 75]
+            sig_len = size_indices_lohi(N, ms, bases, exps)
+            indices = np.sort(np.random.choice(range(N), size=sig_len, replace=False))
+            test_signals = []
+            test_freqs = []
+            for i in range(test_size):
+                index = np.random.randint(0, N) 
+                test_freqs.append(index)
+                w = 2 * np.pi * index / N
+                test_signals.append([np.exp(1j*(w*ind)) + make_noise(sigma2, 1)[0] for ind in indices])
+            acc, time = test_noisy_mle_random_inds(N, test_signals, test_freqs, indices, plotting=False, verbose=True)
+            print(acc, time)
+
+test_mle_accuracy()
+#test_mle_timing()
 #test_freq_scaling()
 #test_kay_timing()

@@ -230,15 +230,19 @@ def test_noisy_mle(N, m, signals, freqs):
     return count / len(freqs)
 
 # indices are constant
-def test_noisy_mle_random_inds(N, signals, freqs, inds, plotting=False):
+def test_noisy_mle_random_inds(N, signals, freqs, inds, plotting=False, verbose=False):
     total_time = 0
     count = 0  
-                     
+    
+    all_max_dotps = []
+    all_max_indices = []
+
+
     for index in range(len(signals)):
         maxval, maxind = 0, 0
         all_dots = np.array([])
         for i in range(N):
-            if i % ((2 ** 11) * (3 ** 4)) == 0:
+            if verbose and i % (N // 20) == 0:
                 print(i)
             w = i * 2*np.pi / N
             clean = [np.exp(1j*(w*ind)) for ind in inds]
@@ -252,15 +256,24 @@ def test_noisy_mle_random_inds(N, signals, freqs, inds, plotting=False):
                 max_ind = i
         if freqs[index] == max_ind:
             count += 1
-        else:
-            print(freqs[index], max_ind)
+        #else:
+        #    print(freqs[index], max_ind)
+        max_inds = np.argpartition(all_dots, -100)[-100:]
+        if freqs[index] not in max_inds:
+            max_inds = np.append(max_inds, freqs[index])
+        max_inds = sorted(max_inds)
+        max_dots = all_dots[max_inds]
+        all_max_dotps.append(max_dots)
+        all_max_indices.append(max_inds)
         if plotting:
-            max_inds = sorted(np.argpartition(all_dots, -100)[-100:])
-            max_dots = all_dots[max_inds]
             plt.plot([i for i in max_inds], max_dots,'ro')
             plt.plot([freqs[index]], [all_dots[freqs[index]]], 'go')
             plt.axvline(x=freqs[index])
             plt.show()
+        
+    np.save('./data/all_max_dotps', all_max_dotps)
+    np.save('./data/all_max_indices', all_max_indices)
+    np.save('./data/all_mle_freqs', freqs)
     return count / len(freqs), total_time
 
 # gets exact number of unique indices for N, ms, bases, exps - for use in mle comparison
