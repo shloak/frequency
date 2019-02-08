@@ -4,6 +4,7 @@ import tensorflow as tf
 import math
 from functools import reduce
 import time
+from multiprocessing import Pool
 
 ## SIGNAL UTILS
 
@@ -263,6 +264,47 @@ def test_noisy_mle_random_inds(N, signals, freqs, inds, plotting=False, verbose=
             max_inds = np.append(max_inds, freqs[index])
         max_inds = sorted(max_inds)
         max_dots = all_dots[max_inds]
+        all_max_dotps.append(max_dots)
+        all_max_indices.append(max_inds)
+        if plotting:
+            plt.plot([i for i in max_inds], max_dots,'ro')
+            plt.plot([freqs[index]], [all_dots[freqs[index]]], 'go')
+            plt.axvline(x=freqs[index])
+            plt.show()
+        
+    np.save('./data/all_max_dotps', all_max_dotps)
+    np.save('./data/all_max_indices', all_max_indices)
+    np.save('./data/all_mle_freqs', freqs)
+    return count / len(freqs), total_time
+
+def calc_dot_p(N, w, inds, signal):
+    if int(w * N / (2 * np.pi)) % (N // 20) == 0:
+        print(int(w * N / (2 * np.pi))) 
+    clean = [np.exp(1j*(w*ind)) for ind in inds]
+    return np.absolute(np.vdot(signal, clean))
+
+# indices are constant
+def test_noisy_mle_random_inds_pool(N, signals, freqs, inds, plotting=False, verbose=False):
+    total_time = 0
+    count = 0  
+    
+    all_max_dotps = []
+    all_max_indices = []
+
+
+    for index in range(len(signals)):
+        with Pool(processes=6) as pool:
+            n_range = [(N, i * 2 * np.pi / N, inds, signals[index]) for i in range(N)]
+            all_dots = pool.starmap(calc_dot_p, n_range)
+        all_dots = np.array(all_dots)
+        max_inds = np.argpartition(all_dots, -10)[-10:]
+        if freqs[index] not in max_inds:
+            max_inds = np.append(max_inds, freqs[index])
+        max_inds = sorted(max_inds)
+        max_dots = all_dots[max_inds]
+
+        if freqs[index] == max_inds[np.argmax(max_dots)]:
+            count += 1
         all_max_dotps.append(max_dots)
         all_max_indices.append(max_inds)
         if plotting:

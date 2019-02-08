@@ -112,10 +112,12 @@ def test_mle_accuracy():
                 test_freqs.append(index)
                 w = 2 * np.pi * index / N
                 test_signals.append([np.exp(1j*(w*ind)) + make_noise(sigma2, 1)[0] for ind in indices])
-            acc, time = test_noisy_mle_random_inds(N, test_signals, test_freqs, indices, plotting=False, verbose=True)
+            acc, time = test_noisy_mle_random_inds_pool(N, test_signals, test_freqs, indices, plotting=False, verbose=True)
             print(acc, time)
 
-test_mle_accuracy()
-#test_mle_timing()
-#test_freq_scaling()
-#test_kay_timing()
+if __name__ == '__main__':    
+    test_mle_accuracy()
+    #test_mle_timing()
+    #test_freq_scaling()
+    #test_kay_timing()
+
