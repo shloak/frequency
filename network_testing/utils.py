@@ -120,13 +120,18 @@ def kays_method(my_signal):
     N = len(my_signal)
     w = kay_weights(N)
     
+    start = time.time()
+
     angle_diff = np.angle(np.conj(my_signal[0:-1])*my_signal[1:])
     need_to_shift = np.any(angle_diff < -np.pi/2)
     if need_to_shift:    
         neg_idx = angle_diff < 0
         angle_diff[neg_idx] += np.pi*2
     
-    return w.dot(angle_diff)
+    dotp = w.dot(angle_diff)
+
+    end = time.time()
+    return dotp, (end - start)
 
 def kays_singleton_accuracy(test_signals, test_freqs, N):
     diffs = [s - make_signal(kays_method(s), 0, N) for s in test_signals]
@@ -149,14 +154,30 @@ def kays_singleton_accuracy(test_signals, test_freqs, N):
     print('thresh: ', best_thresh)
     return best / len(test_signals)
 
-def test_kays(signals, freqs, N):
-    count = 0
+def test_min_thresh(signal, N, m, index, T):
+    min_val, min_ind = np.inf, index
+    for i in range(index - T//2, index + T//2 + 1):
+        sig = make_signal((i * 2*np.pi/N), 0, m)
+        resid = np.vdot(sig - signal, sig - signal)
+        if resid < min_val:
+            min_val = resid
+            min_ind = i
+    #print('thresh: ', min_ind)
+    return min_ind
+        
+
+def test_kays(signals, freqs, N, m, T=5):
+    count, count2 = 0, 0
+    total_time = 0
     for sig, freq in zip(signals, freqs):
-        res = kays_method(sig)
-        res = round(res * N / (2 * np.pi))
+        res, time = kays_method(sig)
+        total_time += time
+        res = int(round(res * N / (2 * np.pi))) % N
         if np.argmax(freq) == res:
             count += 1
-    return count / len(signals)
+        if np.argmax(freq) == int(test_min_thresh(sig, N, m, res, T)):
+            count2 += 1
+    return count2 / len(signals), total_time
 
 ## SINGLETON UTILITIES
 
@@ -207,6 +228,52 @@ def test_noisy_mle(N, m, signals, freqs):
             #print(np.argmax(dots))
             count += 1
     return count / len(freqs)
+
+# indices are constant
+def test_noisy_mle_random_inds(N, signals, freqs, inds, plotting=False):
+    total_time = 0
+    count = 0  
+                     
+    for index in range(len(signals)):
+        maxval, maxind = 0, 0
+        all_dots = np.array([])
+        for i in range(N):
+            if i % ((2 ** 11) * (3 ** 4)) == 0:
+                print(i)
+            w = i * 2*np.pi / N
+            clean = [np.exp(1j*(w*ind)) for ind in inds]
+            start = time.time()
+            dot_p = np.absolute(np.vdot(signals[index], clean))
+            end = time.time()
+            total_time += (end - start)
+            all_dots = np.append(all_dots, dot_p)
+            if dot_p > maxval:
+                maxval = dot_p
+                max_ind = i
+        if freqs[index] == max_ind:
+            count += 1
+        else:
+            print(freqs[index], max_ind)
+        if plotting:
+            max_inds = sorted(np.argpartition(all_dots, -100)[-100:])
+            max_dots = all_dots[max_inds]
+            plt.plot([i for i in max_inds], max_dots,'ro')
+            plt.plot([freqs[index]], [all_dots[freqs[index]]], 'go')
+            plt.axvline(x=freqs[index])
+            plt.show()
+    return count / len(freqs), total_time
+
+# gets exact number of unique indices for N, ms, bases, exps - for use in mle comparison
+def size_indices_lohi(N, ms, bases, exps):
+    indices = set()
+    for i in range(exps[0]):
+        for k in range(ms[0]):
+            indices.add((k * (bases[1] ** exps[1]) * (bases[0] ** i)) % N)
+    for i in range(exps[1]):
+        for k in range(ms[1]):
+            indices.add((k * (bases[0] ** exps[0]) * (bases[1] ** i)) % N)
+    # print(len(indices))
+    return len(indices)
 
 ## NN UTILITIES
 
@@ -329,7 +396,7 @@ def test_all_1bit_random(bits, N, m, signal, inds): # try set of all combined me
     return min_ind, total_time
 
 # want to generate train, test data
-def generate_data_dicts(N, ms, bases, exps, dict_size, batch_size, SNRdB, indices):
+def generate_data_dicts(N, ms, bases, exps, dict_size, batch_size, SNRdB, indices, boundaries=False):
     dict1, dict2 = {}, {}
     inds1, inds2 = [], []
     sigma2 = get_sigma2_from_snrdb(SNRdB)
@@ -343,6 +410,8 @@ def generate_data_dicts(N, ms, bases, exps, dict_size, batch_size, SNRdB, indice
         randoms, orig_freqs = [], []
         for k in range(batch_size):
             curr_freq = np.random.randint(0, N)
+            if boundaries:
+                curr_freq = N // ((bases[0] ** np.random.randint(0, exps[0] + 1)) * (bases[1] ** np.random.randint(0, exps[1] + 1)))
             w = (2 * np.pi * curr_freq / N) % (2 * np.pi)
             orig_freqs.append(curr_freq)
             signal_values = {}
@@ -502,6 +571,39 @@ def determine_freq(N, bases, exps, freqs1, freqs2):
     guess = chinese_remainder([bases[0] ** exps[0], bases[1] ** exps[1]], [first, second])
     return (0, guess, (freqs1, freqs2))
 
+def determine_freq_onebit(N, bases, exps, freqs1, freqs2, rands, indices):
+    all_trials = set()
+    first = convert_bits(freqs1, bases[0])
+    second = convert_bits(freqs2, bases[1])
+    all_trials.add(chinese_remainder([bases[0] ** exps[0], bases[1] ** exps[1]], [first, second]))
+    for i in range(exps[0]):
+        bits = np.copy(freqs1)
+        for j in range(bases[0]):
+            bits[i] = j
+            new_first = convert_bits(bits, bases[0])
+            all_trials.add(chinese_remainder([bases[0] ** exps[0], bases[1] ** exps[1]], [new_first, second]))
+    for i in range(exps[1]):
+        bits = np.copy(freqs2)
+        for j in range(bases[1]):
+            bits[i] = j
+            new_second = convert_bits(bits, bases[1])
+            all_trials.add(chinese_remainder([bases[0] ** exps[0], bases[1] ** exps[1]], [first, new_second]))
+    max_dot, best_freq = 0, 0
+    total_time = 0
+    for index in all_trials:
+        w = 2 * np.pi * index / N
+        random_sig = [np.exp(1j*(w*t)) for t in indices]
+        t_start = time.time()
+        dot_product = np.absolute(np.vdot(random_sig, rands))
+        if dot_product > max_dot:
+            max_dot = dot_product
+            best_freq = index
+        t_end = time.time()
+        total_time += t_end - t_start
+    bits_1 = convert_int_to_bits(best_freq % (bases[0] ** exps[0]), bases[0], exps[0])
+    bits_2 = convert_int_to_bits(best_freq % (bases[1] ** exps[1]), bases[1], exps[1])
+    return (total_time, best_freq, (bits_1, bits_2))
+
 def determine_freq_full(N, bases, exps, freqs1, freqs2, rands, indices):
     all_firsts = set()
     all_firsts.add(convert_bits(freqs1, bases[0]))
@@ -550,7 +652,8 @@ def get_final_frequency(N, train_dict_1, train_dict_2, dict_size, batch_size, ba
         predictions, predictions_full = [], []
         for j in range(batch_size):
             pred = determine_freq(N, bases, exps, all_preds[0][i][exps[0] * j : exps[0] * (j+1)], all_preds[1][i][exps[1] * j : exps[1] * (j+1)])
-            pred_full = determine_freq_full(N, bases, exps, all_preds[0][i][exps[0] * j : exps[0] * (j+1)], all_preds[1][i][exps[1] * j : exps[1] * (j+1)], rands1[j], indices)
+            pred_full = determine_freq_onebit(N, bases, exps, all_preds[0][i][exps[0] * j : exps[0] * (j+1)], all_preds[1][i][exps[1] * j : exps[1] * (j+1)], rands1[j], indices)
+            #pred_full = determine_freq_full(N, bases, exps, all_preds[0][i][exps[0] * j : exps[0] * (j+1)], all_preds[1][i][exps[1] * j : exps[1] * (j+1)], rands1[j], indices)
             predictions.append(pred[1:])
             predictions_full.append(pred_full[1:])
             total_time += pred[0]
@@ -579,7 +682,7 @@ def get_final_frequency(N, train_dict_1, train_dict_2, dict_size, batch_size, ba
 # returns (test_dict_1, test_dict_2), which are of size dict_sizes[0] and have at each index: batch_x, batch_y, rands, freqs
 #         (all_predictions, total_time), which is of size dict_sizes[1] and have at each index: freq, (bits_1, bits_2), and then the total time by method 1 (no error correcting)
 #         (all_predictions_full, total_time_full), which is same as above for method 2 (1 bit comprehensive error correcting using mle)
-def frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iters=5000, layers=3, mle_indices = [], train_dicts = [], test_dicts = []):
+def frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iters=5000, layers=3, mle_indices = [], train_dicts = [], test_dicts = [], verbose=False):
     tf.reset_default_graph()
     N = (bases[0] ** exps[0]) * (bases[1] ** exps[1])
 
@@ -591,7 +694,7 @@ def frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iter
     time_feedfwd1, allp1, alla1 = test_nn(N, ms[0], t1, dict_sizes[1], batch_size * exps[0], bases[0], exps[0])
     train_nn(N, ms[1], d2, batch_size * exps[1], dict_sizes[0], num_classes=bases[1], layer=layers, num_iter=num_iters)
     time_feedfwd2, allp2, alla2 = test_nn(N, ms[1], t2, dict_sizes[1], batch_size * exps[1], bases[1], exps[1])
-    (all_predictions, total_time), (all_predictions_full, total_time_full) = get_final_frequency(N, t1, t2, dict_sizes[1], batch_size, bases, exps, indices, [allp1, allp2], [alla1, alla2])
+    (all_predictions, total_time), (all_predictions_full, total_time_full) = get_final_frequency(N, t1, t2, dict_sizes[1], batch_size, bases, exps, indices, [allp1, allp2], [alla1, alla2], verbose=verbose)
     return (t1, t2), (all_predictions, total_time + time_feedfwd1 + time_feedfwd2), (all_predictions_full, total_time_full + time_feedfwd1 + time_feedfwd2)
 
 def calculate_accuracy(t1, all_preds, dict_size, batch_size):

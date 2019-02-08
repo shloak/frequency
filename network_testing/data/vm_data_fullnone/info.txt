@@ -1,0 +1,5 @@
+comparison of no correction vs o(mn) correction at n = (3**7)(2**1)
+
+
+    snrs = [5, 4, 3, 2, 1, 0, -1, -2]
+    all_ms = [[a, a + 5] for a in range(10, 100, 5)] 
