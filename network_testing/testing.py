@@ -115,8 +115,28 @@ def test_mle_accuracy():
             acc, time = test_noisy_mle_random_inds_pool(N, test_signals, test_freqs, indices, plotting=False, verbose=True)
             print(acc, time)
 
+def test_single_radix_boundaries():
+    exps = [8, 10, 12, 14]
+    base, m, dict_sizes, batch_size, SNRdB = 2, 25, [2500, 10000], 5, 4
+    for exp in exps:
+        (t1, t2), (all_preds, time_small), (all_preds_full, time_full) = frequency_detection_single_radix(m, base, exp, dict_sizes, batch_size, SNRdB, num_iters=8000, layers=1, mle_indices = [], train_dicts = [], test_dicts = [], verbose=True)
+        calculate_accuracy(t1, all_preds, dict_sizes[1], batch_size)
+        calculate_accuracy(t1, all_preds_full, dict_sizes[1], batch_size)
+        wrong_actual, wrong_guess, bits_off, wrong_bits = get_miss_distribution(m, base, exp, t1, all_preds, dict_sizes[1], batch_size)
+        wrong_actual_full, wrong_guess_full, bits_off_full, wrong_bits_full = get_miss_distribution(m, base, exp, t1, all_preds_full, dict_sizes[1], batch_size)
+        np.save('./data/boundary_testing/wrong_actual_small_exp{}'.format(exp), wrong_actual)
+        np.save('./data/boundary_testing/wrong_guess_small_exp{}'.format(exp), wrong_guess)
+        np.save('./data/boundary_testing/bits_off_small_exp{}'.format(exp), bits_off)
+        np.save('./data/boundary_testing/wrong_bits_small_exp{}'.format(exp), wrong_bits)
+        np.save('./data/boundary_testing/wrong_actual_full_exp{}'.format(exp), wrong_actual_full)
+        np.save('./data/boundary_testing/wrong_guess_full_exp{}'.format(exp), wrong_guess_full)
+        np.save('./data/boundary_testing/bits_off_full_exp{}'.format(exp), bits_off_full)
+        np.save('./data/boundary_testing/wrong_bits_full_exp{}'.format(exp), wrong_bits_full)
+        
+
 if __name__ == '__main__':    
-    test_mle_accuracy()
+    test_single_radix_boundaries()
+    #test_mle_accuracy()
     #test_mle_timing()
     #test_freq_scaling()
     #test_kay_timing()

@@ -752,6 +752,21 @@ def frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iter
     (all_predictions, total_time), (all_predictions_full, total_time_full) = get_final_frequency(N, t1, t2, dict_sizes[1], batch_size, bases, exps, indices, [allp1, allp2], [alla1, alla2], verbose=verbose)
     return (t1, t2), (all_predictions, total_time + time_feedfwd1 + time_feedfwd2), (all_predictions_full, total_time_full + time_feedfwd1 + time_feedfwd2)
 
+def frequency_detection_single_radix(m, base, exp, dict_sizes, batch_size, SNRdB, num_iters=5000, layers=3, mle_indices = [], train_dicts = [], test_dicts = [], verbose=False):
+    tf.reset_default_graph()
+    N = (base ** exp)
+
+    indices = np.sort(np.random.choice(range(N), size=m, replace=False)) if len(mle_indices) == 0 else mle_indices
+    d1, d2 = generate_data_dicts(N, [m, 0], [base, 2], [exp, 0], dict_sizes[0], batch_size, SNRdB, indices) if len(train_dicts) == 0 else train_dicts
+    t1, t2 = generate_data_dicts(N, [m, 0], [base, 2], [exp, 0], dict_sizes[1], batch_size, SNRdB, indices) if len(test_dicts) == 0 else test_dicts
+
+    train_nn(N, m, d1, batch_size * exp, dict_sizes[0], num_classes=base, layer=layers, num_iter=num_iters)
+    time_feedfwd1, allp1, alla1 = test_nn(N, m, t1, dict_sizes[1], batch_size * exp, base, exp)
+    #train_nn(N, ms[1], d2, batch_size * exps[1], dict_sizes[0], num_classes=bases[1], layer=layers, num_iter=num_iters)
+    time_feedfwd2, allp2, alla2 = 0, [[0] * batch_size] * dict_sizes[1], [[0] * batch_size] * dict_sizes[1]
+    (all_predictions, total_time), (all_predictions_full, total_time_full) = get_final_frequency(N, t1, t2, dict_sizes[1], batch_size, [base, 2], [exp, 0], indices, [allp1, allp2], [alla1, alla2], verbose=verbose)
+    return (t1, t2), (all_predictions, total_time + time_feedfwd1 + time_feedfwd2), (all_predictions_full, total_time_full + time_feedfwd1 + time_feedfwd2)
+
 def calculate_accuracy(t1, all_preds, dict_size, batch_size):
     correct = 0
     for i in range(dict_size):
@@ -762,4 +777,28 @@ def calculate_accuracy(t1, all_preds, dict_size, batch_size):
     print(correct / (dict_size * batch_size))
     return correct / (dict_size * batch_size)
 
+
+def get_miss_distribution(m, base, exp, t1, all_preds, dict_size, batch_size):
+    correct = 0
+    wrong_actual, wrong_guess = [], [] 
+    bits_off, wrong_bits = [] ,[]
+    for i in range(dict_size):
+        batch_x, batch_y, rands, freqs = t1[i]
+        for j in range(batch_size):
+            if all_preds[i][j][0] == freqs[j]:
+                correct += 1
+            else:
+                wrong_actual.append(freqs[j])
+                wrong_guess.append(all_preds[i][j][0])
+                correct_freq, guess_freq = convert_int_to_bits(freqs[j], base, exp), convert_int_to_bits(all_preds[i][j][0], base, exp)
+                off_count, wrong_indices = 0, []
+                for k in range(len(correct_freq)):
+                    if correct_freq[k] != guess_freq[k]:
+                        off_count += 1
+                        wrong_indices.append(k)
+                bits_off.append(off_count)
+                wrong_bits.append(wrong_indices)
+
+    print(correct / (dict_size * batch_size))
+    return wrong_actual, wrong_guess, bits_off, wrong_bits
     
