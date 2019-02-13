@@ -782,9 +782,11 @@ def get_miss_distribution(m, base, exp, t1, all_preds, dict_size, batch_size):
     correct = 0
     wrong_actual, wrong_guess = [], [] 
     bits_off, wrong_bits = [] ,[]
+    freq_counts = [0] * (base ** exp)
     for i in range(dict_size):
         batch_x, batch_y, rands, freqs = t1[i]
         for j in range(batch_size):
+            freq_counts[freqs[j]] += 1
             if all_preds[i][j][0] == freqs[j]:
                 correct += 1
             else:
@@ -800,5 +802,5 @@ def get_miss_distribution(m, base, exp, t1, all_preds, dict_size, batch_size):
                 wrong_bits.append(wrong_indices)
 
     print(correct / (dict_size * batch_size))
-    return wrong_actual, wrong_guess, bits_off, wrong_bits
+    return wrong_actual, wrong_guess, bits_off, wrong_bits, freq_counts
     
