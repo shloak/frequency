@@ -134,10 +134,69 @@ def test_single_radix_boundaries():
         np.save('./data/boundary_testing_big/bits_off_full_exp{}'.format(exp), bits_off_full)
         np.save('./data/boundary_testing_big/wrong_bits_full_exp{}'.format(exp), wrong_bits_full)
         np.save('./data/boundary_testing_big/freq_counts_exp{}'.format(exp), freq_counts)
+
+def test_shift_method():
+    exps = [8, 10, 12, 14]
+    #exp = 8
+    base, m, dict_sizes, batch_size, SNRdB = 2, 25, [2500, 50000], 5, 4
+    #shifts = [1/8, 1/16] # how much of a circle to shift clockwise (eg input freq is f0 - 2pi*shift)
+    shifts = [2 ** -3, 2 ** -5, 2 ** -7, 2 ** -9] 
+    for exp, shift in zip(exps, shifts):
+    #for shift in shifts:
+        N = base ** exp
+        (t1, t2), (all_preds, time_small), (all_preds_full, time_full), shift_all_preds_full, indices = \
+             frequency_detection_single_radix(m, base, exp, dict_sizes, batch_size, SNRdB, num_iters=8000, shift=shift, layers=1, mle_indices = [], train_dicts = [], test_dicts = [], verbose=False)
+        final_preds = compare_shifted(t1, all_preds_full, shift_all_preds_full, dict_sizes[1], batch_size, indices, N, [base, 2], [exp, 0], shift=shift) # shifted predictions
+        print('SHIFT:', shift)
+        calculate_accuracy(t1, all_preds_full, dict_sizes[1], batch_size)
+        calculate_accuracy(t1, final_preds, dict_sizes[1], batch_size)
+
+        wrong_actual_full, wrong_guess_full, bits_off_full, wrong_bits_full, freq_counts = get_miss_distribution(m, base, exp, t1, all_preds_full, dict_sizes[1], batch_size)
+        wrong_actual_shift, wrong_guess_shift, bits_off_shift, wrong_bits_shift, freq_counts = get_miss_distribution(m, base, exp, t1, final_preds, dict_sizes[1], batch_size)
+        
+        np.save('./data/boundary_testing_shifted_t3/wrong_actual_shift_exp{}'.format(exp), wrong_actual_shift)
+        np.save('./data/boundary_testing_shifted_t3/wrong_guess_shift_exp{}'.format(exp), wrong_guess_shift)
+        np.save('./data/boundary_testing_shifted_t3/bits_off_shift_exp{}'.format(exp), bits_off_shift)
+        np.save('./data/boundary_testing_shifted_t3/wrong_bits_shift_exp{}'.format(exp), wrong_bits_shift)
+        np.save('./data/boundary_testing_shifted_t3/wrong_actual_full_exp{}'.format(exp), wrong_actual_full)
+        np.save('./data/boundary_testing_shifted_t3/wrong_guess_full_exp{}'.format(exp), wrong_guess_full)
+        np.save('./data/boundary_testing_shifted_t3/bits_off_full_exp{}'.format(exp), bits_off_full)
+        np.save('./data/boundary_testing_shifted_t3/wrong_bits_full_exp{}'.format(exp), wrong_bits_full)
+        np.save('./data/boundary_testing_shifted_t3/freq_counts_exp{}'.format(exp), freq_counts)
         
 
+
+def test_shift_method_accuracy():
+    exp = 8
+    base, dict_sizes, batch_size, SNRdB = 2, [2500, 5000], 5, 2
+    ms = [i for i in range(8, 22, 2)]
+    shift = 1/8
+    NUM_TRIALS = 4
+    all_accs = []
+    N = base ** exp
+    for m in ms:
+
+        trial_accs = []
+        for _ in range(NUM_TRIALS):
+
+            (t1, t2), (all_preds, time_small), (all_preds_full, time_full), shift_all_preds_full, indices = \
+                frequency_detection_single_radix(m, base, exp, dict_sizes, batch_size, SNRdB, num_iters=8000, shift=shift, layers=1, mle_indices = [], train_dicts = [], test_dicts = [], verbose=False)
+            final_preds = compare_shifted(t1, all_preds_full, shift_all_preds_full, dict_sizes[1], batch_size, indices, N, [base, 2], [exp, 0], shift=shift) # shifted predictions
+
+            trial_accs.append(calculate_accuracy(t1, final_preds, dict_sizes[1], batch_size))
+    
+        all_accs.append(np.max(trial_accs))
+
+
+    np.save('./data/accuracy_shifted/exp{}snr{}accs_shifted'.format(exp, SNRdB), all_accs)    
+
+
+
+
+
 if __name__ == '__main__':    
-    test_single_radix_boundaries()
+    test_shift_method_accuracy()
+    #test_single_radix_boundaries()
     #test_mle_accuracy()
     #test_mle_timing()
     #test_freq_scaling()

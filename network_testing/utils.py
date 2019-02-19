@@ -451,8 +451,9 @@ def test_all_1bit_random(bits, N, m, signal, inds): # try set of all combined me
     return min_ind, total_time
 
 # want to generate train, test data
-def generate_data_dicts(N, ms, bases, exps, dict_size, batch_size, SNRdB, indices, boundaries=False):
-    dict1, dict2 = {}, {}
+def generate_data_dicts(N, ms, bases, exps, dict_size, batch_size, SNRdB, indices, boundaries=False, shift=(1/8)):
+    dict1, dict2 = {}, {} 
+    shift_dict1, shift_dict2 = {}, {} 
     inds1, inds2 = [], []
     sigma2 = get_sigma2_from_snrdb(SNRdB)
     for i in range(exps[0]):
@@ -463,18 +464,26 @@ def generate_data_dicts(N, ms, bases, exps, dict_size, batch_size, SNRdB, indice
         sigs1, sigs2 = [], []
         freqs1, freqs2 = [], []
         randoms, orig_freqs = [], []
+
+        shift_sigs1, shift_sigs2, shift_randoms = [], [], []
         for k in range(batch_size):
             curr_freq = np.random.randint(0, N)
             if boundaries:
                 curr_freq = N // ((bases[0] ** np.random.randint(0, exps[0] + 1)) * (bases[1] ** np.random.randint(0, exps[1] + 1)))
+            curr_freq_shift = (curr_freq - (N * shift)) % N
             w = (2 * np.pi * curr_freq / N) % (2 * np.pi)
+            w_shift = (2 * np.pi * curr_freq_shift / N) % (2 * np.pi)
             orig_freqs.append(curr_freq)
             signal_values = {}
+            shift_signal_values = {}
             for j in range(len(inds1)):
                 for ind in inds1[j]:
                     if ind not in signal_values:
-                        signal_values[ind] = np.exp(1j*(w*ind)) + make_noise(sigma2, 1)[0]
+                        noise = make_noise(sigma2, 1)[0]
+                        signal_values[ind] = np.exp(1j*(w*ind)) + noise
+                        shift_signal_values[ind] = np.exp(1j*(w_shift*ind)) + noise
                 sigs1.append([signal_values[ind] for ind in inds1[j]])
+                shift_sigs1.append([shift_signal_values[ind] for ind in inds1[j]])
                 freq_one_hot = [0] * bases[0]
                 freq_one_hot[((curr_freq * (bases[1]**exps[1]) * (bases[0] ** j) % N) * bases[0]) // N] = 1
                 freqs1.append(freq_one_hot)
@@ -482,19 +491,27 @@ def generate_data_dicts(N, ms, bases, exps, dict_size, batch_size, SNRdB, indice
             for j in range(len(inds2)):
                 for ind in inds2[j]:
                     if ind not in signal_values:
-                        signal_values[ind] = np.exp(1j*(w*ind)) + make_noise(sigma2, 1)[0]
+                        noise = make_noise(sigma2, 1)[0]
+                        signal_values[ind] = np.exp(1j*(w*ind))
+                        shift_signal_values[ind] = np.exp(1j*(w_shift*ind)) + noise
                 sigs2.append([signal_values[ind] for ind in inds2[j]])
+                shift_sigs2.append([shift_signal_values[ind] for ind in inds2[j]])
                 freq_one_hot = [0] * bases[1]
                 freq_one_hot[((curr_freq * (bases[0]**exps[0]) * (bases[1] ** j) % N) * bases[1]) // N] = 1
                 freqs2.append(freq_one_hot)
                 
             for ind in indices:
                 if ind not in signal_values:
-                    signal_values[ind] = np.exp(1j*(w*ind)) + make_noise(sigma2, 1)[0]
+                    noise = make_noise(sigma2, 1)[0]
+                    signal_values[ind] = np.exp(1j*(w*ind)) + noise
+                    shift_signal_values[ind] = np.exp(1j*(w_shift*ind)) + noise
             randoms.append([signal_values[ind] for ind in indices])
+            shift_randoms.append([shift_signal_values[ind] for ind in indices])
         dict1[i] = (sigs1, freqs1, randoms, orig_freqs)
         dict2[i] = (sigs2, freqs2, randoms, orig_freqs)
-    return (dict1, dict2)
+        shift_dict1[i] = (shift_sigs1, freqs1, shift_randoms, orig_freqs)
+        shift_dict2[i] = (shift_sigs2, freqs2, shift_randoms, orig_freqs)
+    return (dict1, dict2, shift_dict1, shift_dict2)
             
 
 def train_nn(N, m, train_dict, batch_size, dict_size, num_classes=2, layer=3, num_iter=10000, learning_rate=0.005):
@@ -732,6 +749,62 @@ def get_final_frequency(N, train_dict_1, train_dict_2, dict_size, batch_size, ba
     ## add all times together
     print('done')
     return (all_predictions, total_time), (all_predictions_full, total_time_full)
+
+def get_final_frequency_shift(N, train_dict_1, train_dict_2, dict_size, batch_size, bases, exps, indices, all_preds, all_acts, shift_train_dict_1, shift_all_preds, verbose=False):
+    all_predictions = {} # (freq, (bits1, bits2)) for each batch for no error correcting 
+    all_predictions_full = {} # (freq, (bits1, bits2)) for each batch for full 1 bit error correcting
+
+    shift_all_predictions = {}
+    shift_all_predictions_full = {}
+
+    total_time, total_time_full = 0, 0
+    for i in range(dict_size):
+        batch_x1, batch_y1, rands1, freqs1 = train_dict_1[i]
+        batch_x2, batch_y2, rands2, freqs2 = train_dict_2[i]
+
+        shift_batch_x1, shift_batch_y1, shift_rands1, shift_freqs1 = shift_train_dict_1[i]
+
+        predictions, predictions_full = [], []
+        shift_predictions, shift_predictions_full = [], []
+        for j in range(batch_size):
+            pred = determine_freq(N, bases, exps, all_preds[0][i][exps[0] * j : exps[0] * (j+1)], all_preds[1][i][exps[1] * j : exps[1] * (j+1)])
+            pred_full = determine_freq_onebit(N, bases, exps, all_preds[0][i][exps[0] * j : exps[0] * (j+1)], all_preds[1][i][exps[1] * j : exps[1] * (j+1)], rands1[j], indices)
+
+            shift_pred = determine_freq(N, bases, exps, shift_all_preds[i][exps[0] * j : exps[0] * (j+1)], shift_all_preds[i][exps[1] * j : exps[1] * (j+1)])
+            shift_pred_full = determine_freq_onebit(N, bases, exps, shift_all_preds[i][exps[0] * j : exps[0] * (j+1)], shift_all_preds[i][exps[1] * j : exps[1] * (j+1)], shift_rands1[j], indices)
+
+            #pred_full = determine_freq_full(N, bases, exps, all_preds[0][i][exps[0] * j : exps[0] * (j+1)], all_preds[1][i][exps[1] * j : exps[1] * (j+1)], rands1[j], indices)
+            predictions.append(pred[1:])
+            predictions_full.append(pred_full[1:])
+
+            shift_predictions.append(shift_pred[1:])
+            shift_predictions_full.append(shift_pred_full[1:])
+
+            total_time += pred[0]
+            total_time_full += pred_full[0]
+        #predictions = [determine_freq(N, bases, exps, all_preds[0][i][exps[0] * j : exps[0] * (j+1)], all_preds[1][i][exps[1] * j : exps[1] * (j+1)]) for j in range(batch_size)]
+        #predictions_full = [determine_freq_full(N, bases, exps, all_preds[0][i][exps[0] * j : exps[0] * (j+1)], all_preds[1][i][exps[1] * j : exps[1] * (j+1)], rands1[j], indices) for j in range(batch_size)]
+        
+        
+        #determine_freq(N, bases, exps, all_acts[0][i][exps[0] * j : exps[0] * (j+1)], all_acts[1][i][exps[1] * j : exps[1] * (j+1)])
+        if verbose:
+            for j in range(batch_size):
+                if predictions[j][0] != freqs1[j] and predictions_full[j][0] != freqs1[j]:
+                    print('guess (small):', predictions[j][0], 'guess (full):', predictions_full[j][0], 'actual:', freqs1[j])
+                elif predictions_full[j][0] != freqs1[j]:
+                    print('guess (full):', predictions_full[j][0], 'actual:', freqs1[j])
+                elif predictions[j][0] != freqs1[j]:
+                    print('guess (small):', predictions[j][0], 'actual:', freqs1[j])
+        all_predictions[i] = predictions
+        all_predictions_full[i] = predictions_full
+
+        shift_all_predictions[i] = shift_predictions
+        shift_all_predictions_full[i] = shift_predictions_full
+
+            
+    ## add all times together
+    print('done')
+    return (all_predictions, total_time), (all_predictions_full, total_time_full), (shift_all_predictions, total_time), (shift_all_predictions_full, total_time_full)
         
     
 # returns (test_dict_1, test_dict_2), which are of size dict_sizes[0] and have at each index: batch_x, batch_y, rands, freqs
@@ -742,8 +815,8 @@ def frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iter
     N = (bases[0] ** exps[0]) * (bases[1] ** exps[1])
 
     indices = np.sort(np.random.choice(range(N), size=ms[0], replace=False)) if len(mle_indices) == 0 else mle_indices
-    d1, d2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[0], batch_size, SNRdB, indices) if len(train_dicts) == 0 else train_dicts
-    t1, t2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[1], batch_size, SNRdB, indices) if len(test_dicts) == 0 else test_dicts
+    d1, d2, sd1, sd2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[0], batch_size, SNRdB, indices) if len(train_dicts) == 0 else train_dicts
+    t1, t2, st1, st2 = generate_data_dicts(N, ms, bases, exps, dict_sizes[1], batch_size, SNRdB, indices) if len(test_dicts) == 0 else test_dicts
 
     train_nn(N, ms[0], d1, batch_size * exps[0], dict_sizes[0], num_classes=bases[0], layer=layers, num_iter=num_iters)
     time_feedfwd1, allp1, alla1 = test_nn(N, ms[0], t1, dict_sizes[1], batch_size * exps[0], bases[0], exps[0])
@@ -752,20 +825,46 @@ def frequency_detection(ms, bases, exps, dict_sizes, batch_size, SNRdB, num_iter
     (all_predictions, total_time), (all_predictions_full, total_time_full) = get_final_frequency(N, t1, t2, dict_sizes[1], batch_size, bases, exps, indices, [allp1, allp2], [alla1, alla2], verbose=verbose)
     return (t1, t2), (all_predictions, total_time + time_feedfwd1 + time_feedfwd2), (all_predictions_full, total_time_full + time_feedfwd1 + time_feedfwd2)
 
-def frequency_detection_single_radix(m, base, exp, dict_sizes, batch_size, SNRdB, num_iters=5000, layers=3, mle_indices = [], train_dicts = [], test_dicts = [], verbose=False):
+def frequency_detection_single_radix(m, base, exp, dict_sizes, batch_size, SNRdB, shift = (1/8), num_iters=5000, layers=3, mle_indices = [], train_dicts = [], test_dicts = [], verbose=False):
     tf.reset_default_graph()
     N = (base ** exp)
 
     indices = np.sort(np.random.choice(range(N), size=m, replace=False)) if len(mle_indices) == 0 else mle_indices
-    d1, d2 = generate_data_dicts(N, [m, 0], [base, 2], [exp, 0], dict_sizes[0], batch_size, SNRdB, indices) if len(train_dicts) == 0 else train_dicts
-    t1, t2 = generate_data_dicts(N, [m, 0], [base, 2], [exp, 0], dict_sizes[1], batch_size, SNRdB, indices) if len(test_dicts) == 0 else test_dicts
+    d1, d2, sd1, sd2 = generate_data_dicts(N, [m, 0], [base, 2], [exp, 0], dict_sizes[0], batch_size, SNRdB, indices, shift=shift) if len(train_dicts) == 0 else train_dicts
+    t1, t2, st1, st2 = generate_data_dicts(N, [m, 0], [base, 2], [exp, 0], dict_sizes[1], batch_size, SNRdB, indices, shift=shift) if len(test_dicts) == 0 else test_dicts
 
     train_nn(N, m, d1, batch_size * exp, dict_sizes[0], num_classes=base, layer=layers, num_iter=num_iters)
     time_feedfwd1, allp1, alla1 = test_nn(N, m, t1, dict_sizes[1], batch_size * exp, base, exp)
+    time_feedfwd1_shift, allp1_shift, alla1_shift = test_nn(N, m, st1, dict_sizes[1], batch_size * exp, base, exp)
     #train_nn(N, ms[1], d2, batch_size * exps[1], dict_sizes[0], num_classes=bases[1], layer=layers, num_iter=num_iters)
     time_feedfwd2, allp2, alla2 = 0, [[0] * batch_size] * dict_sizes[1], [[0] * batch_size] * dict_sizes[1]
-    (all_predictions, total_time), (all_predictions_full, total_time_full) = get_final_frequency(N, t1, t2, dict_sizes[1], batch_size, [base, 2], [exp, 0], indices, [allp1, allp2], [alla1, alla2], verbose=verbose)
-    return (t1, t2), (all_predictions, total_time + time_feedfwd1 + time_feedfwd2), (all_predictions_full, total_time_full + time_feedfwd1 + time_feedfwd2)
+    (all_predictions, total_time), (all_predictions_full, total_time_full) , (shift_all_predictions, shift_total_time), (shift_all_predictions_full, shift_total_time_full) = \
+         get_final_frequency_shift(N, t1, t2, dict_sizes[1], batch_size, [base, 2], [exp, 0], indices, [allp1, allp2], [alla1, alla2], st1, allp1_shift, verbose=verbose)
+    return (t1, t2), (all_predictions, total_time + time_feedfwd1 + time_feedfwd2), (all_predictions_full, total_time_full + time_feedfwd1 + time_feedfwd2), shift_all_predictions_full, indices
+
+
+def compare_shifted(t1, all_preds, shift_all_preds, dict_size, batch_size, indices, N, bases, exps, shift=(1/8), verbose=False):
+    final_preds = {}
+    for i in range(dict_size):
+        batch_x, batch_y, rands, freqs = t1[i]
+        best_guesses = []
+        for j in range(batch_size):
+            w = (np.pi * 2 * all_preds[i][j][0]) / N
+            random_sig = [np.exp(1j*(w*t)) for t in indices]
+            shift_w = ((np.pi * 2 * (shift_all_preds[i][j][0] + (shift * N))) / N) % (2 * np.pi)
+            shift_random_sig = [np.exp(1j*(shift_w*t)) for t in indices]
+            if np.absolute(np.vdot(random_sig, rands[j])) >= np.absolute(np.vdot(shift_random_sig, rands[j])):
+                best_guesses.append(all_preds[i][j])
+            else:
+                if verbose and int((shift_all_preds[i][j][0] + (shift * N)) % N) != all_preds[i][j][0]:
+                    print(freqs[j], (shift_all_preds[i][j][0] + (shift * N)) % N, all_preds[i][j][0])
+                best_freq = int((shift_all_preds[i][j][0] + (shift * N)) % N)
+                bits_1 = convert_int_to_bits(best_freq % (bases[0] ** exps[0]), bases[0], exps[0])
+                bits_2 = convert_int_to_bits(best_freq % (bases[1] ** exps[1]), bases[1], exps[1])
+                best_guesses.append((best_freq, (bits_1, bits_2)))
+        final_preds[i] = best_guesses
+    return final_preds
+
 
 def calculate_accuracy(t1, all_preds, dict_size, batch_size):
     correct = 0
