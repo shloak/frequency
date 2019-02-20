@@ -41,7 +41,10 @@ def successive_est_params():
         test_size = 20 * (2 ** n)
         successive_accs = []
 
-        nums = [i for i in range(2, n + 1)]
+        nums = [i for i in range(2,  n + 1)]
+
+        if n <= 12:
+            nums = [i for i in range(2,  2*n + 1)] # more if small n
     
         for num in nums:
             successive_accs.append(test_successive_estimation(2 ** n, n, SNRdB, num, test_size))
@@ -70,5 +73,5 @@ def our_method_params():
 
     
 if __name__ == '__main__':    
-    our_method_params()
-    #successive_est_params()
+    #our_method_params()
+    successive_est_params()
